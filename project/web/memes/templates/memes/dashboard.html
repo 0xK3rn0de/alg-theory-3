@@ -1,0 +1,113 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Генератор мемов</title>
+  <link rel="stylesheet" href="{% static 'memes/style.css' %}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{% url 'memes:dashboard' %}" aria-label="Генератор мемов, главная">
+      <span class="brand-mark">М</span>
+      <span>МЕМ-МАСТЕР</span>
+    </a>
+    <div class="topbar-meta"><span class="live-dot"></span> Локальная библиотека</div>
+    <a class="admin-link" href="/admin/">Администрирование <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main class="page-shell">
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">ТВОРЧЕСКАЯ МАСТЕРСКАЯ</p>
+        <h1>Генератор мемов</h1>
+        <p class="intro-copy">Выберите шаблон или соберите новый из своей картинки и подписи.</p>
+      </div>
+      <div class="date-stamp"><span>СЕГОДНЯ</span><strong>{{ chart.6.date|date:"d.m.Y" }}</strong></div>
+    </section>
+
+    {% if messages %}
+      <div class="messages" aria-live="polite">
+        {% for message in messages %}<p class="message {{ message.tags }}">{{ message }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    <section class="workbench" aria-label="Рабочая область">
+      <aside class="library-panel">
+        <div class="section-heading"><div><p class="eyebrow">ВАША КОЛЛЕКЦИЯ</p><h2>Шаблоны</h2></div><span class="count-badge">{{ templates|length }}</span></div>
+        <div class="template-list">
+          {% for item in templates %}
+            <a class="template-row{% if selected.pk == item.pk %} is-selected{% endif %}" href="?selected={{ item.pk }}">
+              <span class="template-index">{{ forloop.counter|stringformat:"02d" }}</span>
+              <span class="template-info"><strong>{{ item.title }}</strong><small>{{ item.category }}</small></span>
+              <span class="row-arrow" aria-hidden="true">↗</span>
+            </a>
+          {% empty %}
+            <p class="empty-state">Пока нет заготовок. Добавьте первую в форме справа.</p>
+          {% endfor %}
+        </div>
+        <div class="library-foot"><span class="live-dot"></span> Сохранено в библиотеке</div>
+      </aside>
+
+      <section class="preview-panel">
+        <div class="section-heading"><div><p class="eyebrow">РЕЗУЛЬТАТ</p><h2>Предпросмотр</h2></div><span class="format-tag">MEME / 01</span></div>
+        <div class="meme-canvas{% if not selected.image %} canvas-empty{% endif %}">
+          {% if selected and selected.image %}<img class="meme-image" src="{{ selected.image.url }}" alt="Фон мема: {{ selected.title }}">{% endif %}
+          <div class="canvas-grain" aria-hidden="true"></div>
+          {% if selected %}
+            <p class="meme-caption caption-top">{{ selected.top_text|default:" "|upper }}</p>
+            <p class="meme-caption caption-bottom">{{ selected.bottom_text|default:" "|upper }}</p>
+          {% else %}
+            <div class="canvas-placeholder"><span>М</span><p>Ваш следующий мем<br>начинается здесь.</p></div>
+          {% endif %}
+          <span class="canvas-stamp">{{ selected.category|default:"IDEA"|upper }}</span>
+        </div>
+        <div class="preview-actions">
+          <div class="selected-label">{% if selected %}<span class="live-dot"></span> {{ selected.title }}{% else %}Выберите заготовку{% endif %}</div>
+          {% if selected %}
+            <form method="post" action="{% url 'memes:dashboard' %}?selected={{ selected.pk }}">
+              {% csrf_token %}<input type="hidden" name="action" value="generate"><input type="hidden" name="template_id" value="{{ selected.pk }}">
+              <button class="primary-button" type="submit"><span aria-hidden="true">✳</span> Создать мем</button>
+            </form>
+          {% endif %}
+        </div>
+      </section>
+    </section>
+
+    <section class="lower-grid">
+      <section class="activity-panel">
+        <div class="section-heading"><div><p class="eyebrow">ПОСЛЕДНЯЯ НЕДЕЛЯ</p><h2>Активность</h2></div><span class="activity-total">За 7 дней: {{ weekly_total }}</span></div>
+        <div class="chart" role="img" aria-label="Количество созданных мемов за последние семь дней">
+          {% for day in chart %}
+            <div class="chart-day" title="{{ day.date|date:'d.m' }} · {{ day.count }}">
+              <div class="bar-track"><span class="bar-fill{% if day.date == chart.6.date %} is-today{% endif %}" style="height:{{ day.percent }}%"></span></div>
+              <strong>{{ day.count }}</strong><small>{{ day.date|date:"D"|slice:":2" }}</small>
+            </div>
+          {% endfor %}
+        </div>
+        <p class="chart-note">Статистика хранится в базе данных и сохраняется между запусками.</p>
+      </section>
+
+      <section class="create-panel" id="new-template">
+        <div class="section-heading"><div><p class="eyebrow">НОВАЯ ИДЕЯ</p><h2>Добавить шаблон</h2></div><span class="plus-mark">+</span></div>
+        <form class="template-form" method="post" enctype="multipart/form-data">
+          {% csrf_token %}<input type="hidden" name="action" value="add_template">
+          {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+          <div class="field-grid">
+            <label class="field">{{ form.title.label }}{{ form.title }}{% for error in form.title.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</label>
+            <label class="field">{{ form.category.label }}{{ form.category }}{% for error in form.category.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</label>
+            <label class="field">{{ form.top_text.label }}{{ form.top_text }}{% for error in form.top_text.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</label>
+            <label class="field">{{ form.bottom_text.label }}{{ form.bottom_text }}{% for error in form.bottom_text.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</label>
+          </div>
+          <label class="upload-field" for="{{ form.image.id_for_label }}"><span class="upload-icon" aria-hidden="true">↥</span><span><strong>Добавить изображение</strong><small>PNG, JPG или WebP · до 5 МБ</small></span>{{ form.image }}<span class="upload-action">Выбрать файл</span></label>
+          {% for error in form.image.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+          <button class="secondary-button" type="submit">Сохранить заготовку <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+    </section>
+    <footer class="page-footer"><span>МЕМ-МАСТЕР / WEB</span><span>Создано для хорошего настроения</span></footer>
+  </main>
+</body>
+</html>
