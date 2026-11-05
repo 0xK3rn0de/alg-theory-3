@@ -7,9 +7,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -54,9 +55,17 @@ class MemeTemplate:
     top_text: str
     bottom_text: str
     template_id: str
+    image_path: str = ""
 
     @classmethod
-    def create(cls, title: str, category: str, top_text: str, bottom_text: str) -> MemeTemplate:
+    def create(
+        cls,
+        title: str,
+        category: str,
+        top_text: str,
+        bottom_text: str,
+        image_path: str = "",
+    ) -> MemeTemplate:
         values = {
             "Название": title.strip(),
             "Категория": category.strip(),
@@ -76,6 +85,7 @@ class MemeTemplate:
             top_text=top_text.strip(),
             bottom_text=bottom_text.strip(),
             template_id=uuid4().hex[:8],
+            image_path=image_path,
         )
 
 
@@ -120,11 +130,13 @@ class MemePreview(QWidget):
         super().__init__()
         self.top_text = "Выберите шаблон"
         self.bottom_text = "и создайте мем"
+        self.image = QPixmap()
         self.setMinimumSize(360, 250)
 
-    def set_caption(self, top_text: str, bottom_text: str) -> None:
+    def set_caption(self, top_text: str, bottom_text: str, image_path: str = "") -> None:
         self.top_text = top_text or " "
         self.bottom_text = bottom_text or " "
+        self.image = QPixmap(image_path) if image_path else QPixmap()
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -138,6 +150,20 @@ class MemePreview(QWidget):
         painter.setBrush(gradient)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(bounds, 14, 14)
+        if not self.image.isNull():
+            clip_path = QPainterPath()
+            clip_path.addRoundedRect(QRectF(bounds), 14, 14)
+            painter.save()
+            painter.setClipPath(clip_path)
+            scaled_image = self.image.scaled(
+                bounds.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            image_x = bounds.center().x() - scaled_image.width() // 2
+            image_y = bounds.center().y() - scaled_image.height() // 2
+            painter.drawPixmap(image_x, image_y, scaled_image)
+            painter.restore()
 
         font = QFont("DejaVu Sans", 18, QFont.Weight.Black)
         metrics = QFontMetrics(font)
@@ -307,11 +333,24 @@ class MemeMainWindow(QMainWindow):
         self.top_input.setPlaceholderText("Верхняя подпись")
         self.bottom_input = QLineEdit()
         self.bottom_input.setPlaceholderText("Нижняя подпись")
+        self.image_path = ""
+        self.image_button = QPushButton("Выбрать…")
+        self.image_button.clicked.connect(self._select_image)
+        self.clear_image_button = QPushButton("Убрать")
+        self.clear_image_button.clicked.connect(self._clear_image)
+        self.image_label = QLabel("Не выбрано")
+        image_controls = QHBoxLayout()
+        image_controls.addWidget(self.image_button)
+        image_controls.addWidget(self.clear_image_button)
+        image_controls.addWidget(self.image_label, 1)
+        image_row = QWidget()
+        image_row.setLayout(image_controls)
         form = QFormLayout()
         form.addRow("Название", self.title_input)
         form.addRow("Категория", self.category_input)
         form.addRow("Сверху", self.top_input)
         form.addRow("Снизу", self.bottom_input)
+        form.addRow("Изображение", image_row)
         self.add_button = QPushButton("Добавить заготовку")
         self.add_button.clicked.connect(self._add_template)
         form.addRow("", self.add_button)
@@ -357,7 +396,30 @@ class MemeMainWindow(QMainWindow):
             template = self._selected_template()
         except SelectionError:
             return
-        self.preview.set_caption(template.top_text, template.bottom_text)
+        self.preview.set_caption(template.top_text, template.bottom_text, template.image_path)
+
+    def _select_image(self) -> None:
+        image_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите изображение",
+            "",
+            "Изображения (*.png *.jpg *.jpeg *.bmp *.webp)",
+        )
+        if not image_path:
+            return
+        if QPixmap(image_path).isNull():
+            self._show_error(ValidationError("Не удалось загрузить выбранное изображение."))
+            return
+        self.image_path = image_path
+        self.image_label.setText(Path(image_path).name)
+        self.image_label.setToolTip(image_path)
+        self.preview.set_caption(self.top_input.text(), self.bottom_input.text(), image_path)
+
+    def _clear_image(self) -> None:
+        self.image_path = ""
+        self.image_label.setText("Не выбрано")
+        self.image_label.setToolTip("")
+        self.preview.set_caption(self.top_input.text(), self.bottom_input.text())
 
     def _add_template(self) -> None:
         try:
@@ -366,6 +428,7 @@ class MemeMainWindow(QMainWindow):
                 self.category_input.text(),
                 self.top_input.text(),
                 self.bottom_input.text(),
+                self.image_path,
             )
             self.repository.add(template)
         except MemeAppError as error:
@@ -375,6 +438,9 @@ class MemeMainWindow(QMainWindow):
         self.table.selectRow(self.table.rowCount() - 1)
         for field in (self.title_input, self.category_input, self.top_input, self.bottom_input):
             field.clear()
+        self.image_path = ""
+        self.image_label.setText("Не выбрано")
+        self.image_label.setToolTip("")
         self._log(f"Добавлена заготовка «{template.title}»")
 
     def _generate_meme(self) -> None:
@@ -385,7 +451,7 @@ class MemeMainWindow(QMainWindow):
             return
         today = date.today()
         self.daily_counts[today] = self.daily_counts.get(today, 0) + 1
-        self.preview.set_caption(template.top_text, template.bottom_text)
+        self.preview.set_caption(template.top_text, template.bottom_text, template.image_path)
         self._update_chart()
         self._log(f"Создан мем по заготовке «{template.title}»")
         self.statusBar().showMessage("Мем готов", 3000)
