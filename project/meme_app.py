@@ -260,13 +260,15 @@ class MemeMainWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.setStyleSheet(
             "QMainWindow { background: #f3f4ef; }"
-            "QLabel { color: #242820; }"
-            "QGroupBox { font-weight: 700; border: 1px solid #d5d9ce; border-radius: 6px; margin-top: 10px; padding: 10px; }"
-            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
-            "QLineEdit, QTableWidget, QTextEdit { background: #fff; border: 1px solid #d5d9ce; border-radius: 4px; padding: 5px; }"
+            "QWidget { color: #111; }"
+            "QLabel { color: #111; }"
+            "QGroupBox { color: #111; font-weight: 700; border: 1px solid #d5d9ce; border-radius: 6px; margin-top: 10px; padding: 10px; }"
+            "QGroupBox::title { color: #111; subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+            "QLineEdit, QTableWidget, QTextEdit { color: #111; background: #fff; border: 1px solid #d5d9ce; border-radius: 4px; padding: 5px; }"
+            "QTableWidget::item { color: #111; }"
             "QPushButton { background: #273027; color: white; border: 0; border-radius: 4px; padding: 8px 13px; font-weight: 700; }"
             "QPushButton:hover { background: #3d4b3b; }"
-            "QHeaderView::section { background: #e7e9e1; border: 0; padding: 6px; font-weight: 700; }"
+            "QHeaderView::section { color: #111; background: #e7e9e1; border: 0; padding: 6px; font-weight: 700; }"
         )
 
         file_menu = self.menuBar().addMenu("Файл")
@@ -289,9 +291,9 @@ class MemeMainWindow(QMainWindow):
         layout.setSpacing(12)
 
         heading = QLabel("ГЕНЕРАТОР МЕМОВ")
-        heading.setStyleSheet("font-size: 22px; font-weight: 900; color: #273027;")
+        heading.setStyleSheet("font-size: 22px; font-weight: 900; color: #111;")
         subtitle = QLabel("Выберите заготовку, добавьте свои идеи и создайте мем")
-        subtitle.setStyleSheet("color: #687064;")
+        subtitle.setStyleSheet("color: #111;")
         layout.addWidget(heading)
         layout.addWidget(subtitle)
 
