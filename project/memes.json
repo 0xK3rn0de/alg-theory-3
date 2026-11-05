@@ -1,0 +1,30 @@
+[
+  {
+    "title": "Понедельник",
+    "category": "Работа",
+    "top_text": "Я: сегодня лягу пораньше",
+    "bottom_text": "Также я в 02:47: ещё одно видео",
+    "template_id": "sample-01"
+  },
+  {
+    "title": "Перед дедлайном",
+    "category": "Учёба",
+    "top_text": "До срока ещё целая неделя",
+    "bottom_text": "Осталось 3 минуты",
+    "template_id": "sample-02"
+  },
+  {
+    "title": "Ожидание и реальность",
+    "category": "Жизнь",
+    "top_text": "План на выходные",
+    "bottom_text": "Фактический план на выходные",
+    "template_id": "sample-03"
+  },
+  {
+    "title": "askdfasdf",
+    "category": "aklsjfhdasdf",
+    "top_text": "asdf",
+    "bottom_text": "afsdfsd",
+    "template_id": "e4b4868a"
+  }
+]
