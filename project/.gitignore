@@ -1,3 +1,6 @@
 .venv/
 __pycache__/
 *.py[cod]
+memes.db
+memes.db-shm
+memes.db-wal

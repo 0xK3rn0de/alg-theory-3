@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass
+import sqlite3
+from contextlib import closing
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -91,38 +93,120 @@ class MemeTemplate:
 
 class MemeRepository:
     def __init__(self, path: Path | None = None) -> None:
-        self.path = path or Path(__file__).with_name("memes.json")
-        self._templates = self._load()
+        self.path = path or Path(__file__).with_name("memes.db")
+        self._initialize()
 
     def all(self) -> list[MemeTemplate]:
-        return list(self._templates)
+        try:
+            with closing(sqlite3.connect(self.path)) as connection:
+                with connection:
+                    rows = connection.execute(
+                        "SELECT title, category, top_text, bottom_text, template_id, image_path "
+                        "FROM templates ORDER BY id"
+                    ).fetchall()
+        except sqlite3.Error as error:
+            raise DataStorageError(f"Не удалось прочитать шаблоны из базы данных: {error}") from error
+        return [MemeTemplate(*row) for row in rows]
 
     def add(self, template: MemeTemplate) -> None:
-        self._templates.append(template)
-        self._save()
-
-    def _load(self) -> list[MemeTemplate]:
-        if not self.path.exists():
-            return [
-                MemeTemplate("Понедельник", "Работа", "Я: сегодня лягу пораньше", "Также я в 02:47: ещё одно видео" , "sample-01"),
-                MemeTemplate("Перед дедлайном", "Учёба", "До срока ещё целая неделя", "Осталось 3 минуты", "sample-02"),
-                MemeTemplate("Ожидание и реальность", "Жизнь", "План на выходные", "Фактический план на выходные", "sample-03"),
-            ]
         try:
-            raw_templates = json.loads(self.path.read_text(encoding="utf-8"))
+            with closing(sqlite3.connect(self.path)) as connection:
+                with connection:
+                    connection.execute(
+                        "INSERT INTO templates (title, category, top_text, bottom_text, template_id, image_path) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            template.title,
+                            template.category,
+                            template.top_text,
+                            template.bottom_text,
+                            template.template_id,
+                            template.image_path,
+                        ),
+                    )
+        except sqlite3.Error as error:
+            raise DataStorageError(f"Не удалось сохранить шаблон в базе данных: {error}") from error
+
+    def record_generation(self, activity_date: date) -> None:
+        try:
+            with closing(sqlite3.connect(self.path)) as connection:
+                with connection:
+                    connection.execute(
+                        "INSERT INTO activity (activity_date, generation_count) VALUES (?, 1) "
+                        "ON CONFLICT(activity_date) DO UPDATE SET generation_count = generation_count + 1",
+                        (activity_date.isoformat(),),
+                    )
+        except sqlite3.Error as error:
+            raise DataStorageError(f"Не удалось сохранить активность: {error}") from error
+
+    def activity_between(self, start_date: date, end_date: date) -> dict[date, int]:
+        try:
+            with closing(sqlite3.connect(self.path)) as connection:
+                with connection:
+                    rows = connection.execute(
+                        "SELECT activity_date, generation_count FROM activity "
+                        "WHERE activity_date BETWEEN ? AND ?",
+                        (start_date.isoformat(), end_date.isoformat()),
+                    ).fetchall()
+            return {date.fromisoformat(activity_date): count for activity_date, count in rows}
+        except (sqlite3.Error, ValueError) as error:
+            raise DataStorageError(f"Не удалось прочитать статистику активности: {error}") from error
+
+    def _initialize(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with closing(sqlite3.connect(self.path)) as connection:
+                with connection:
+                    connection.execute(
+                        "CREATE TABLE IF NOT EXISTS templates ("
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                        "title TEXT NOT NULL, category TEXT NOT NULL, top_text TEXT NOT NULL, "
+                        "bottom_text TEXT NOT NULL, template_id TEXT NOT NULL UNIQUE, image_path TEXT NOT NULL DEFAULT '')"
+                    )
+                    connection.execute(
+                        "CREATE TABLE IF NOT EXISTS activity ("
+                        "activity_date TEXT PRIMARY KEY, generation_count INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    count = connection.execute("SELECT COUNT(*) FROM templates").fetchone()[0]
+                    if count == 0:
+                        templates = self._load_legacy_templates() or self._default_templates()
+                        connection.executemany(
+                            "INSERT INTO templates (title, category, top_text, bottom_text, template_id, image_path) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            [
+                                (
+                                    item.title,
+                                    item.category,
+                                    item.top_text,
+                                    item.bottom_text,
+                                    item.template_id,
+                                    item.image_path,
+                                )
+                                for item in templates
+                            ],
+                        )
+        except DataStorageError:
+            raise
+        except (OSError, sqlite3.Error) as error:
+            raise DataStorageError(f"Не удалось инициализировать базу данных: {error}") from error
+
+    def _load_legacy_templates(self) -> list[MemeTemplate]:
+        legacy_path = self.path.with_name("memes.json")
+        if not legacy_path.exists():
+            return []
+        try:
+            raw_templates = json.loads(legacy_path.read_text(encoding="utf-8"))
             return [MemeTemplate(**item) for item in raw_templates]
         except (OSError, json.JSONDecodeError, TypeError, KeyError) as error:
-            raise DataStorageError(f"Не удалось прочитать файл шаблонов: {error}") from error
+            raise DataStorageError(f"Не удалось импортировать старые шаблоны: {error}") from error
 
-    def _save(self) -> None:
-        try:
-            self.path.write_text(
-                json.dumps([asdict(item) for item in self._templates], ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except OSError as error:
-            self._templates.pop()
-            raise DataStorageError(f"Не удалось сохранить шаблон: {error}") from error
+    @staticmethod
+    def _default_templates() -> list[MemeTemplate]:
+        return [
+            MemeTemplate("Понедельник", "Работа", "Я: сегодня лягу пораньше", "Также я в 02:47: ещё одно видео", "sample-01"),
+            MemeTemplate("Перед дедлайном", "Учёба", "До срока ещё целая неделя", "Осталось 3 минуты", "sample-02"),
+            MemeTemplate("Ожидание и реальность", "Жизнь", "План на выходные", "Фактический план на выходные", "sample-03"),
+        ]
 
 
 class MemePreview(QWidget):
@@ -249,7 +333,6 @@ class MemeMainWindow(QMainWindow):
     def __init__(self, repository: MemeRepository) -> None:
         super().__init__()
         self.repository = repository
-        self.daily_counts: dict[date, int] = {}
         self.setWindowTitle("Генератор мемов")
         self.resize(1120, 820)
         self._build_ui()
@@ -452,7 +535,11 @@ class MemeMainWindow(QMainWindow):
             self._show_error(error)
             return
         today = date.today()
-        self.daily_counts[today] = self.daily_counts.get(today, 0) + 1
+        try:
+            self.repository.record_generation(today)
+        except DataStorageError as error:
+            self._show_error(error)
+            return
         self.preview.set_caption(template.top_text, template.bottom_text, template.image_path)
         self._update_chart()
         self._log(f"Создан мем по заготовке «{template.title}»")
@@ -460,8 +547,10 @@ class MemeMainWindow(QMainWindow):
 
     def _update_chart(self) -> None:
         today = date.today()
+        start_date = today - timedelta(days=6)
+        daily_counts = self.repository.activity_between(start_date, today)
         self.chart.set_counts([
-            self.daily_counts.get(today - timedelta(days=offset), 0)
+            daily_counts.get(today - timedelta(days=offset), 0)
             for offset in range(6, -1, -1)
         ])
 
